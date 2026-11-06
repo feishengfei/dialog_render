@@ -91,6 +91,7 @@ audio {
 .avatar-box {
     flex-shrink:0;
     width:64px;
+    text-align:center;
 }
 .avatar-img {
     width:64px;
@@ -109,6 +110,12 @@ audio {
     font-size:12px;
     text-align:center;
     color:var(--text-secondary);
+}
+.avatar-name-text {
+    font-size:11px;
+    margin-top:4px;
+    color:var(--text-secondary);
+    word-break:break-word;
 }
 .bubble-text {
     flex-grow:1;
@@ -150,6 +157,9 @@ audio {
             <img class="avatar-img" src="{{ bubble.avatar_b64 }}" alt="{{ bubble.sp | e }}">
         {% else %}
             <div class="avatar-placeholder">{{ bubble.sp | e }}</div>
+        {% endif %}
+        {% if bubble.full_name %}
+        <div class="avatar-name-text">{{ bubble.full_name | e }}</div>
         {% endif %}
         </div>
         <div class="bubble-text">

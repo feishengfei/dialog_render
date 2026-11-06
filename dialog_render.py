@@ -28,6 +28,9 @@ PNG_VIEWPORT_WIDTH = 1080
 PNG_VIEWPORT_HEIGHT = 1920
 AVATAR_THUMB_SIZE = (64, 64)  # 输出给HTML的缩略图尺寸
 FALLBACK_BUBBLE_RGBA = "rgba(220,220,220,0.3)"
+COLOR_BRIGHT_SCALE = 0.65   # 颜色亮度缩放，原0.5调至0.65提升色彩辨识度
+COLOR_ALPHA = 0.35          # 气泡透明度调高
+WHITE_THRESHOLD = 240       # 过滤接近纯白像素，R>G>B全部大于该值直接丢弃
 SCRIPT_DIR = os.path.dirname(os.path.abspath(os.path.realpath(__file__)))
 
 
@@ -52,10 +55,35 @@ def image_to_thumb_b64(img: Image.Image) -> str:
     return f"data:image/png;base64,{b64_data}"
 
 
+def load_cast_yaml(cast_dir: Path) -> dict:
+    """
+    读取cast_dir/cast_00001_.yaml，返回 {name: full_name}
+    文件缺失/解析异常返回空dict，不抛出异常
+    """
+    cast_yaml_path = cast_dir / "cast_00001_.yaml"
+    sp_fullname_map = {}
+    if not cast_yaml_path.exists():
+        print(f"[INFO] cast yaml不存在: {cast_yaml_path}，跳过full_name读取")
+        return sp_fullname_map
+    try:
+        with open(cast_yaml_path, "r", encoding="utf‑8") as f:
+            cast_list = yaml.safe_load(f)
+        if isinstance(cast_list, list):
+            for item in cast_list:
+                name = item.get("name", "").strip()
+                full_name = item.get("full_name", "").strip()
+                if name and full_name:
+                    sp_fullname_map[name] = full_name
+        print(f"[INFO]成功加载cast_00001_.yaml，共{len(sp_fullname_map)}位speaker")
+    except Exception as e:
+        print(f"[WARN]解析cast_00001_.yaml失败 err={e}")
+    return sp_fullname_map
+
+
 def get_image_dominant_rgba(img_path: Path) -> str:
     """
-    获取原图占比最高主色，RGB各通道减半，alpha=0.25
-    返回 rgba(r,g,b,0.25)；异常返回fallback
+    改进取色：过滤接近纯白像素，提升角色气泡色彩区分度
+    返回 rgba(r,g,b,COLOR_ALPHA)；异常返回fallback
     """
     try:
         with Image.open(img_path) as im:
@@ -65,12 +93,19 @@ def get_image_dominant_rgba(img_path: Path) -> str:
             pixels = list(im_small.getdata())
             freq = {}
             for pix in pixels:
+                r, g, b = pix
+                # 过滤接近纯白背景，避免头像大量白底导致气泡全部灰白无区分
+                if r > WHITE_THRESHOLD and g > WHITE_THRESHOLD and b > WHITE_THRESHOLD:
+                    continue
                 freq[pix] = freq.get(pix, 0) + 1
+            if len(freq) == 0:
+                # 过滤后无有效色彩，回退fallback
+                return FALLBACK_BUBBLE_RGBA
             dominant_rgb = max(freq, key=freq.get)
-            r = int(dominant_rgb[0] * 0.5)
-            g = int(dominant_rgb[1] * 0.5)
-            b = int(dominant_rgb[2] * 0.5)
-            return f"rgba({r},{g},{b},0.25)"
+            r = int(dominant_rgb[0] * COLOR_BRIGHT_SCALE)
+            g = int(dominant_rgb[1] * COLOR_BRIGHT_SCALE)
+            b = int(dominant_rgb[2] * COLOR_BRIGHT_SCALE)
+            return f"rgba({r},{g},{b},{COLOR_ALPHA})"
     except Exception as e:
         print(f"[COLOR_EXTRACT_WARN] {img_path}, err:{e}")
         return FALLBACK_BUBBLE_RGBA
@@ -106,10 +141,10 @@ def merge_consecutive_speaker(pd_list: list):
     return bubbles
 
 
-def preload_speaker_assets(cast_dir: Path, sp_set: set):
+def preload_speaker_assets(cast_dir: Path, sp_set: set, sp_fullname_map: dict):
     """
     全局预加载全部speaker头像资源，sp做缓存，只处理一次
-    返回 dict[sp] = {"avatar_b64": str|None, "bubble_bg": str}
+    返回 dict[sp] = {"avatar_b64": str|None, "bubble_bg": str, "full_name": str|None}
     """
     sp_asset_cache = {}
     for sp in sp_set:
@@ -117,6 +152,7 @@ def preload_speaker_assets(cast_dir: Path, sp_set: set):
         avatar_path = cast_dir / avatar_filename
         avatar_b64 = None
         bubble_bg = FALLBACK_BUBBLE_RGBA
+        full_name = sp_fullname_map.get(sp, None)
         if avatar_path.exists():
             try:
                 with Image.open(avatar_path) as im_origin:
@@ -126,7 +162,11 @@ def preload_speaker_assets(cast_dir: Path, sp_set: set):
                 print(f"[AVATAR_WARN] sp={sp}, file={avatar_path}, err={e}")
         else:
             print(f"[AVATAR_WARN] sp={sp} avatar not found: {avatar_path}")
-        sp_asset_cache[sp] = {"avatar_b64": avatar_b64, "bubble_bg": bubble_bg}
+        sp_asset_cache[sp] = {
+            "avatar_b64": avatar_b64,
+            "bubble_bg": bubble_bg,
+            "full_name": full_name
+        }
     return sp_asset_cache
 
 
@@ -146,7 +186,7 @@ def collect_all_speakers(groups_raw):
 
 def build_group_context(g_raw, group_idx: int, sp_asset_cache: dict, audio_dir: Path):
     """
-    处理单个group：合并气泡；头像/颜色直接取全局缓存；加载group音频base64
+    处理单个group：合并气泡；头像/颜色/full_name直接取全局缓存；加载group音频base64
     返回 group_ctx dict，pd为空返回None(该group跳过渲染)
     """
     gt = g_raw.get("gt", "")
@@ -163,7 +203,8 @@ def build_group_context(g_raw, group_idx: int, sp_asset_cache: dict, audio_dir: 
             "sp": sp,
             "txt_list": b["txt_list"],
             "avatar_b64": cache_item["avatar_b64"],
-            "bubble_bg": cache_item["bubble_bg"]
+            "bubble_bg": cache_item["bubble_bg"],
+            "full_name": cache_item["full_name"]
         })
 
     # 读取group对应音频
@@ -240,7 +281,7 @@ def html_to_paginated_png(html_content: str, out_prefix: str):
 def main():
     parser = argparse.ArgumentParser(description="Dialog YAML render: interactive.html / output.pdf / 分页png")
     parser.add_argument("discuss_yaml", help="path to discuss dialog yaml file")
-    parser.add_argument("-c", "--cast_dir", required=True, help="角色头像资源目录，存放 {sp}_00001_.png")
+    parser.add_argument("-c", "--cast_dir", required=True, help="角色头像资源目录，存放 {sp}_00001_.png，可选cast_00001_.yaml")
     parser.add_argument("-a", "--audio_dir", required=True, help="group合成wav音频目录 _groups_{idx}_a.wav")
     parser.add_argument("--template_dir", default=SCRIPT_DIR, help="jinja2模板文件夹路径")
     args = parser.parse_args()
@@ -256,9 +297,11 @@ def main():
     quiz_meta = raw_data.get("quiz_meta", {})
     groups_raw = raw_data.get("groups", [])
 
-    # 【优化点】收集全部speaker，全局一次性预加载头像+缩略图base64缓存，避免重复编码
+    # 加载cast yaml full_name映射
+    sp_fullname_map = load_cast_yaml(cast_dir)
+    # 收集全部speaker，全局一次性预加载头像+缩略图base64缓存，避免重复编码
     all_sp_set = collect_all_speakers(groups_raw)
-    sp_asset_cache = preload_speaker_assets(cast_dir, all_sp_set)
+    sp_asset_cache = preload_speaker_assets(cast_dir, all_sp_set, sp_fullname_map)
 
     group_ctx_list = []
     for g_idx, g_raw in enumerate(groups_raw):

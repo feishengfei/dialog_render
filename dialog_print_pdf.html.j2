@@ -55,6 +55,7 @@ body {
 .avatar-box {
     flex-shrink: 0;
     width:50px;
+    text-align:center;
 }
 .avatar-img {
     width:50px;
@@ -73,6 +74,12 @@ body {
     font-size:9pt;
     text-align:center;
     color:#444;
+}
+.avatar-name-text {
+    font-size:8px;
+    margin-top:3px;
+    color:#444444;
+    word-break:break-word;
 }
 .bubble-text {
     flex-grow: 1;
@@ -103,6 +110,9 @@ body {
             <img class="avatar-img" src="{{ bubble.avatar_b64 }}" alt="{{ bubble.sp | e }}">
         {% else %}
             <div class="avatar-placeholder">{{ bubble.sp | e }}</div>
+        {% endif %}
+        {% if bubble.full_name %}
+        <div class="avatar-name-text">{{ bubble.full_name | e }}</div>
         {% endif %}
         </div>
         <div class="bubble-text">
