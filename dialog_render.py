@@ -12,10 +12,12 @@ import os
 import base64
 import argparse
 import yaml
+from io import BytesIO
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from playwright.sync_api import sync_playwright
 from PIL import Image
+
 # -------------------------- 常量配置 --------------------------
 PDF_PAGE_FORMAT = "A4"
 PDF_MARGIN_TOP = "15mm"
@@ -24,8 +26,10 @@ PDF_MARGIN_LEFT = "15mm"
 PDF_MARGIN_RIGHT = "15mm"
 PNG_VIEWPORT_WIDTH = 1080
 PNG_VIEWPORT_HEIGHT = 1920
-FALLBACK_BUBBLE_RGBA = "rgba(220,220,220,0.3)"  # 头像读取失败回退气泡颜色
+AVATAR_THUMB_SIZE = (64, 64)  # 输出给HTML的缩略图尺寸
+FALLBACK_BUBBLE_RGBA = "rgba(220,220,220,0.3)"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(os.path.realpath(__file__)))
+
 
 def read_file_as_b64(file_path: str, mime_type: str) -> str:
     """读取二进制文件返回 base64 data‑url字符串"""
@@ -34,16 +38,31 @@ def read_file_as_b64(file_path: str, mime_type: str) -> str:
     b64 = base64.b64encode(data).decode("utf‑8")
     return f"data:{mime_type};base64,{b64}"
 
+
+def image_to_thumb_b64(img: Image.Image) -> str:
+    """
+    将PIL Image对象生成64x64缩略图，返回png data‑url base64
+    保持宽高比，缩放放入AVATAR_THUMB_SIZE
+    """
+    im_copy = img.copy()
+    im_copy.thumbnail(AVATAR_THUMB_SIZE, Image.Resampling.LANCZOS)
+    buf = BytesIO()
+    im_copy.save(buf, format="PNG")
+    b64_data = base64.b64encode(buf.getvalue()).decode("utf‑8")
+    return f"data:image/png;base64,{b64_data}"
+
+
 def get_image_dominant_rgba(img_path: Path) -> str:
     """
-    获取图片占比最高主色，RGB各通道减半，alpha=0.25
+    获取原图占比最高主色，RGB各通道减半，alpha=0.25
     返回 rgba(r,g,b,0.25)；异常返回fallback
     """
     try:
         with Image.open(img_path) as im:
-            im = im.convert("RGB")
-            im.thumbnail((120, 120))
-            pixels = list(im.getdata())
+            im_rgb = im.convert("RGB")
+            im_small = im_rgb.copy()
+            im_small.thumbnail((120, 120))
+            pixels = list(im_small.getdata())
             freq = {}
             for pix in pixels:
                 freq[pix] = freq.get(pix, 0) + 1
@@ -55,6 +74,7 @@ def get_image_dominant_rgba(img_path: Path) -> str:
     except Exception as e:
         print(f"[COLOR_EXTRACT_WARN] {img_path}, err:{e}")
         return FALLBACK_BUBBLE_RGBA
+
 
 def merge_consecutive_speaker(pd_list: list):
     """
@@ -85,9 +105,48 @@ def merge_consecutive_speaker(pd_list: list):
         bubbles.append({"sp": current_sp, "txt_list": current_texts})
     return bubbles
 
-def build_group_context(g_raw, group_idx: int, cast_dir: Path, audio_dir: Path):
+
+def preload_speaker_assets(cast_dir: Path, sp_set: set):
     """
-    处理单个group：合并气泡、加载头像base64+气泡颜色、加载group音频base64
+    全局预加载全部speaker头像资源，sp做缓存，只处理一次
+    返回 dict[sp] = {"avatar_b64": str|None, "bubble_bg": str}
+    """
+    sp_asset_cache = {}
+    for sp in sp_set:
+        avatar_filename = f"{sp}_00001_.png"
+        avatar_path = cast_dir / avatar_filename
+        avatar_b64 = None
+        bubble_bg = FALLBACK_BUBBLE_RGBA
+        if avatar_path.exists():
+            try:
+                with Image.open(avatar_path) as im_origin:
+                    bubble_bg = get_image_dominant_rgba(avatar_path)
+                    avatar_b64 = image_to_thumb_b64(im_origin)
+            except Exception as e:
+                print(f"[AVATAR_WARN] sp={sp}, file={avatar_path}, err={e}")
+        else:
+            print(f"[AVATAR_WARN] sp={sp} avatar not found: {avatar_path}")
+        sp_asset_cache[sp] = {"avatar_b64": avatar_b64, "bubble_bg": bubble_bg}
+    return sp_asset_cache
+
+
+def collect_all_speakers(groups_raw):
+    """遍历全部group pd，收集所有出现过的sp名称集合，用于预加载头像资源"""
+    sp_set = set()
+    for g_raw in groups_raw:
+        pd_list = g_raw.get("a", {}).get("pd", [])
+        if not isinstance(pd_list, list):
+            continue
+        for entry in pd_list:
+            sp = entry.get("sp", "").strip()
+            if sp:
+                sp_set.add(sp)
+    return sp_set
+
+
+def build_group_context(g_raw, group_idx: int, sp_asset_cache: dict, audio_dir: Path):
+    """
+    处理单个group：合并气泡；头像/颜色直接取全局缓存；加载group音频base64
     返回 group_ctx dict，pd为空返回None(该group跳过渲染)
     """
     gt = g_raw.get("gt", "")
@@ -96,27 +155,10 @@ def build_group_context(g_raw, group_idx: int, cast_dir: Path, audio_dir: Path):
     if len(bubble_list) == 0:
         return None
 
-    # 处理每个气泡：头像、气泡背景色
     processed_bubbles = []
-    sp_cache = dict()  # sp -> {"avatar_b64":str|None, "bubble_bg":str}
-
     for b in bubble_list:
         sp = b["sp"]
-        if sp not in sp_cache:
-            avatar_filename = f"{sp}_00001_.png"
-            avatar_path = cast_dir / avatar_filename
-            avatar_b64 = None
-            bubble_bg = FALLBACK_BUBBLE_RGBA
-            if avatar_path.exists():
-                try:
-                    avatar_b64 = read_file_as_b64(str(avatar_path), "image/png")
-                    bubble_bg = get_image_dominant_rgba(avatar_path)
-                except Exception as e:
-                    print(f"[AVATAR_WARN] sp={sp}, file={avatar_path}, err={e}")
-            else:
-                print(f"[AVATAR_WARN] sp={sp} avatar not found: {avatar_path}")
-            sp_cache[sp] = {"avatar_b64": avatar_b64, "bubble_bg": bubble_bg}
-        cache_item = sp_cache[sp]
+        cache_item = sp_asset_cache[sp]
         processed_bubbles.append({
             "sp": sp,
             "txt_list": b["txt_list"],
@@ -142,9 +184,11 @@ def build_group_context(g_raw, group_idx: int, cast_dir: Path, audio_dir: Path):
         "group_audio_b64": group_audio_b64
     }
 
+
 def render_html(tpl_env, tpl_name: str, context: dict) -> str:
     tpl = tpl_env.get_template(tpl_name)
     return tpl.render(**context)
+
 
 def html_to_pdf(html_content: str, output_pdf_path: str):
     with sync_playwright() as p:
@@ -164,6 +208,7 @@ def html_to_pdf(html_content: str, output_pdf_path: str):
         }
         page.pdf(path=output_pdf_path, **pdf_opts)
         browser.close()
+
 
 def html_to_paginated_png(html_content: str, out_prefix: str):
     """
@@ -191,6 +236,7 @@ def html_to_paginated_png(html_content: str, out_prefix: str):
         browser.close()
     return out_files
 
+
 def main():
     parser = argparse.ArgumentParser(description="Dialog YAML render: interactive.html / output.pdf / 分页png")
     parser.add_argument("discuss_yaml", help="path to discuss dialog yaml file")
@@ -207,23 +253,26 @@ def main():
     with open(yaml_abs, "r", encoding="utf‑8") as f:
         raw_data = yaml.safe_load(f)
 
-    # 提取元信息
     quiz_meta = raw_data.get("quiz_meta", {})
     groups_raw = raw_data.get("groups", [])
 
-    # 预处理所有group
+    # 【优化点】收集全部speaker，全局一次性预加载头像+缩略图base64缓存，避免重复编码
+    all_sp_set = collect_all_speakers(groups_raw)
+    sp_asset_cache = preload_speaker_assets(cast_dir, all_sp_set)
+
     group_ctx_list = []
     for g_idx, g_raw in enumerate(groups_raw):
-        g_ctx = build_group_context(g_raw, g_idx, cast_dir, audio_dir)
+        g_ctx = build_group_context(g_raw, g_idx, sp_asset_cache, audio_dir)
         if g_ctx is not None:
             group_ctx_list.append(g_ctx)
         else:
             print(f"[GROUP_SKIP] group idx={g_idx} pd为空，跳过该组渲染")
 
-    # jinja环境
     jinja_env = Environment(loader=FileSystemLoader(args.template_dir), autoescape=True)
+
     def json_filter(val):
         return json.dumps(val, ensure_ascii=False)
+
     jinja_env.filters["tojson"] = json_filter
 
     render_ctx = {
@@ -232,25 +281,26 @@ def main():
     }
 
     basename_stem = yaml_abs.stem
-    # 1.交互式HTML(带主题切换、audio播放器)
+    # 1.交互式HTML
     html_interactive = render_html(jinja_env, "dialog_interactive.html.j2", render_ctx)
     html_interactive_path = yaml_base_dir / f"{basename_stem}_interactive.html"
     with open(html_interactive_path, "w", encoding="utf‑8") as f:
         f.write(html_interactive)
     print(f"✅ 生成交互式网页: {html_interactive_path}")
 
-    # 2.PDF打印版HTML，无js无audio
+    # 2.PDF打印版HTML
     html_pdf_content = render_html(jinja_env, "dialog_print_pdf.html.j2", render_ctx)
     pdf_out_path = yaml_base_dir / f"{basename_stem}.pdf"
     html_to_pdf(html_pdf_content, str(pdf_out_path))
     print(f"✅ 生成PDF: {pdf_out_path}")
 
-    # 3.PNG分页截图，使用png专用模板
+    # 3.PNG分页截图
     html_png_content = render_html(jinja_env, "dialog_snapshot_png.html.j2", render_ctx)
     png_prefix = str(yaml_base_dir / f"{basename_stem}_snap")
     png_files = html_to_paginated_png(html_png_content, png_prefix)
     for fpath in png_files:
         print(f"✅ 生成PNG分片: {fpath}")
+
 
 if __name__ == "__main__":
     main()
