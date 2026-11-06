@@ -31,6 +31,7 @@ body {
     color: var(--text-main);
     padding: 24px 16px;
     transition: background-color 0.3s, color 0.3s;
+    font-size: 27px;
 }
 /* 右上角主题切换按钮 */
 .theme-toggle-wrap {
@@ -54,7 +55,7 @@ body {
     padding-top:30px;
 }
 .quiz-meta h1 {
-    font-size: 26px;
+    font-size: 28px;
     margin-bottom: 8px;
 }
 .quiz-meta .subject-desc {
@@ -65,7 +66,7 @@ body {
     margin-bottom: 32px;
 }
 .group-title {
-    font‑size: 18px;
+    font‑size: 20px;
     font-weight: bold;
     margin-top: 24px;
     margin-bottom:12px;
@@ -115,14 +116,16 @@ audio {
     font-size:11px;
     margin-top:4px;
     color:var(--text-secondary);
-    word-break:break-word;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .bubble-text {
     flex-grow:1;
 }
 .bubble-text p {
     margin-bottom:8px;
-    line-height:1.6;
+    line-height:1.7;
 }
 .bubble-text p:last-child {
     margin-bottom:0;
@@ -159,12 +162,12 @@ audio {
             <div class="avatar-placeholder">{{ bubble.sp | e }}</div>
         {% endif %}
         {% if bubble.full_name %}
-        <div class="avatar-name-text">{{ bubble.full_name | e }}</div>
+        <div class="avatar-name-text"><b>{{ bubble.full_name | e }}</b></div>
         {% endif %}
         </div>
         <div class="bubble-text">
             {% for para in bubble.txt_list %}
-                <p>{{ para | e }}</p>
+            <p><b>{{ para | e }}</b></p>
             {% endfor %}
         </div>
     </div>
