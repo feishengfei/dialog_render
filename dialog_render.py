@@ -7,6 +7,7 @@ dialog_render.py
 3. 分页png序列 1080x1920 9:16纵向截图
 依赖：pyyaml, jinja2, playwright, Pillow
 """
+import colorsys
 import json
 import os
 import base64
@@ -32,6 +33,23 @@ COLOR_BRIGHT_SCALE = 0.65   # 颜色亮度缩放，原0.5调至0.65提升色彩�
 COLOR_ALPHA = 0.35          # 气泡透明度调高
 WHITE_THRESHOLD = 240       # 过滤接近纯白像素，R>G>B全部大于该值直接丢弃
 SCRIPT_DIR = os.path.dirname(os.path.abspath(os.path.realpath(__file__)))
+
+# ===================== 主题色提取可调参数（全部在这里改） =====================
+# 浅色网页端 对比度目标（WCAG AA）
+LIGHT_MODE_CONTRAST_TARGET = 4.5
+# PDF / PNG 导出时，对比度目标（更高）
+EXPORT_CONTRAST_TARGET = 5.0
+# 饱和度下限，防止颜色被压成灰
+MIN_SATURATION = 0.30
+# 提取候选主色数量
+CANDIDATE_COLOR_COUNT = 3
+# 浅色模式文字：黑色
+LIGHT_TEXT_RGB = (0, 0, 0)
+# 深色模式文字：白色（仅记录，不做强制校验）
+DARK_TEXT_RGB = (255, 255, 255)
+# 明度迭代步长，迭代找达标色时的精度
+LIGHTNESS_STEP = 0.01
+# ==========================================================================
 
 
 def read_file_as_b64(file_path: str, mime_type: str) -> str:
@@ -79,10 +97,93 @@ def load_cast_yaml(cast_dir: Path) -> dict:
         print(f"[WARN]解析cast_00001_.yaml失败 err={e}")
     return sp_fullname_map
 
+def relative_luminance(r: float, g: float, b: float) -> float:
+    """计算相对亮度，标准WCAG公式，输入0~1"""
+    def f(v):
+        if v <= 0.03928:
+            return v / 12.92
+        else:
+            return ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+
+def contrast_ratio(l1: float, l2: float) -> float:
+    """对比度 l1、l2 是两个颜色的相对亮度"""
+    lighter = max(l1, l2)
+    darker = min(l1, l2)
+    return (lighter + 0.05) / (darker + 0.05)
+
+def adjust_color_for_light_mode(h: float, s: float, l: float, target_contrast: float) -> tuple[float, float, float]:
+    """
+    锁定色相h、尽量保住饱和度s，只调整明度，直到满足对比度
+    h,s,l 范围都是0~1
+    前景固定是黑色文字 LIGHT_TEXT_RGB
+    """
+    # 黑色的相对亮度
+    lum_text = relative_luminance(0,0,0)
+    current_s = max(s, MIN_SATURATION)
+    current_l = l
+    # 先尝试加深（降低明度，提高和黑字的反差）
+    while True:
+        r,g,b = colorsys.hls_to_rgb(h, current_l, current_s)
+        lum_bg = relative_luminance(r,g,b)
+        cr = contrast_ratio(lum_bg, lum_text)
+        if cr >= target_contrast or current_l <= 0.01:
+            break
+        current_l -= LIGHTNESS_STEP
+    # 迭代完还不够，才放宽饱和度兜底
+    if cr < target_contrast:
+        current_s = s
+        while True:
+            r,g,b = colorsys.hls_to_rgb(h, current_l, current_s)
+            lum_bg = relative_luminance(r,g,b)
+            cr = contrast_ratio(lum_bg, lum_text)
+            if cr >= target_contrast or current_s <= 0:
+                break
+            current_s -= LIGHTNESS_STEP
+    return h, current_s, current_l
+
+def pick_best_theme_color(candidate_rgb_list: list[tuple[int,int,int]], is_export: bool) -> tuple[tuple[int,int,int], tuple[int,int,int]]:
+    """
+    输入：候选RGB列表 [(r,g,b),...] 0~255
+    is_export=True → PDF/PNG，用更高对比度目标
+    返回：(浅色背景RGB, 深色派生背景RGB)
+    深色：复用h,s，翻转明度逻辑，不校验对比度
+    """
+    target_cr = EXPORT_CONTRAST_TARGET if is_export else LIGHT_MODE_CONTRAST_TARGET
+    lum_text = relative_luminance(0,0,0)
+    best_hsl = None
+    best_cr = 0.0
+    # 遍历候选色，优先挑原生就达标的
+    for r8,g8,b8 in candidate_rgb_list[:CANDIDATE_COLOR_COUNT]:
+        r,g,b = r8/255.0, g8/255.0, b8/255.0
+        h,l,s = colorsys.rgb_to_hls(r,g,b)
+        lum_bg = relative_luminance(r,g,b)
+        cr = contrast_ratio(lum_bg, lum_text)
+        if cr >= target_cr:
+            best_hsl = (h,s,l)
+            best_cr = cr
+            break
+    # 没有原生达标候选，拿第一个候选做明度调整
+    if best_hsl is None:
+        r8,g8,b8 = candidate_rgb_list[0]
+        r,g,b = r8/255.0, g8/255.0, b8/255.0
+        h,l,s = colorsys.rgb_to_hls(r,g,b)
+        h_fix, s_fix, l_fix = adjust_color_for_light_mode(h, s, l, target_cr)
+        best_hsl = (h_fix, s_fix, l_fix)
+
+    h_final, s_final, l_light = best_hsl
+    # 浅色模式rgb
+    lr, lg, lb = colorsys.hls_to_rgb(h_final, l_light, s_final)
+    light_rgb = (int(lr*255), int(lg*255), int(lb*255))
+    # 深色派生：同h、s，明度取 1 - l_light，不校验对比度
+    l_dark = 1.0 - l_light
+    dr, dg, db = colorsys.hls_to_rgb(h_final, l_dark, s_final)
+    dark_rgb = (int(dr*255), int(dg*255), int(db*255))
+    return light_rgb, dark_rgb
 
 def get_image_dominant_rgba(img_path: Path) -> str:
     """
-    改进取色：过滤接近纯白像素，提升角色气泡色彩区分度
+    WCAG对比度版本：过滤纯白像素，取top候选色，迭代明度保证文字可读性
     返回 rgba(r,g,b,COLOR_ALPHA)；异常返回fallback
     """
     try:
@@ -94,17 +195,18 @@ def get_image_dominant_rgba(img_path: Path) -> str:
             freq = {}
             for pix in pixels:
                 r, g, b = pix
-                # 过滤接近纯白背景，避免头像大量白底导致气泡全部灰白无区分
+                # 过滤接近纯白背景
                 if r > WHITE_THRESHOLD and g > WHITE_THRESHOLD and b > WHITE_THRESHOLD:
                     continue
                 freq[pix] = freq.get(pix, 0) + 1
             if len(freq) == 0:
-                # 过滤后无有效色彩，回退fallback
                 return FALLBACK_BUBBLE_RGBA
-            dominant_rgb = max(freq, key=freq.get)
-            r = int(dominant_rgb[0] * COLOR_BRIGHT_SCALE)
-            g = int(dominant_rgb[1] * COLOR_BRIGHT_SCALE)
-            b = int(dominant_rgb[2] * COLOR_BRIGHT_SCALE)
+            # 按频次降序取候选色列表
+            sorted_items = sorted(freq.items(), key=lambda x:x[1], reverse=True)
+            candidate_rgb_list = [item[0] for item in sorted_items[:CANDIDATE_COLOR_COUNT]]
+            # is_export=False：网页交互模式；PDF/PNG也复用这套，alpha外层控制
+            light_rgb, _ = pick_best_theme_color(candidate_rgb_list, is_export=False)
+            r, g, b = light_rgb
             return f"rgba({r},{g},{b},{COLOR_ALPHA})"
     except Exception as e:
         print(f"[COLOR_EXTRACT_WARN] {img_path}, err:{e}")
