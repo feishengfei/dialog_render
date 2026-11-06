@@ -26,53 +26,53 @@
     padding: 0;
 }
 body {
-    font-family: "Noto Sans SC", system-ui, sans‑serif;
+    font-family: "Noto Sans SC", system-ui, sans-serif;
     background-color: var(--bg-page);
     color: var(--text-main);
     padding: 24px 16px;
-    transition: background‑color 0.3s, color 0.3s;
+    transition: background-color 0.3s, color 0.3s;
 }
 /* 右上角主题切换按钮 */
-.theme‑toggle‑wrap {
+.theme-toggle-wrap {
     position: fixed;
     top:12px;
     right:16px;
-    z‑index:999;
+    z-index:999;
 }
-#btn‑theme‑switch {
+#btn-theme-switch {
     padding:6px 12px;
-    border‑radius:6px;
-    border:1px solid var(--border‑color);
-    background:var(--header‑bg);
-    color:var(--text‑main);
+    border-radius:6px;
+    border:1px solid var(--border-color);
+    background:var(--header-bg);
+    color:var(--text-main);
     cursor:pointer;
-    font‑size:14px;
+    font-size:14px;
 }
-.quiz‑meta {
-    text‑align: center;
-    margin‑bottom: 28px;
-    padding‑top:30px;
+.quiz-meta {
+    text-align: center;
+    margin-bottom: 28px;
+    padding-top:30px;
 }
-.quiz‑meta h1 {
-    font‑size: 26px;
-    margin‑bottom: 8px;
+.quiz-meta h1 {
+    font-size: 26px;
+    margin-bottom: 8px;
 }
-.quiz‑meta .subject‑desc {
-    font‑size:1rem;
-    color:var(--text‑secondary);
+.quiz-meta .subject-desc {
+    font-size:1rem;
+    color:var(--text-secondary);
 }
-.group‑block {
-    margin‑bottom: 32px;
+.group-block {
+    margin-bottom: 32px;
 }
-.group‑title {
+.group-title {
     font‑size: 18px;
-    font‑weight: bold;
-    margin‑top: 24px;
-    margin‑bottom:12px;
-    padding‑bottom:4px;
-    border‑bottom: 1px solid var(--border‑color);
+    font-weight: bold;
+    margin-top: 24px;
+    margin-bottom:12px;
+    padding-bottom:4px;
+    border-bottom: 1px solid var(--border-color);
 }
-.audio‑wrap {
+.audio-wrap {
     margin:8px 0 16px 0;
 }
 audio {
@@ -81,78 +81,78 @@ audio {
 /* 对话气泡样式 */
 .bubble {
     width:100%;
-    border‑radius:10px;
+    border-radius:10px;
     padding:14px;
-    margin‑bottom:12px;
+    margin-bottom:12px;
     display: flex;
     gap:12px;
-    page‑break‑inside: avoid;
+    page-break-inside: avoid;
 }
-.avatar‑box {
-    flex‑shrink:0;
+.avatar-box {
+    flex-shrink:0;
     width:64px;
 }
-.avatar‑img {
-    width:64px;
-    height:64px;
-    object‑fit:cover;
-    border‑radius:6px;
-}
-.avatar‑placeholder {
+.avatar-img {
     width:64px;
     height:64px;
-    border‑radius:6px;
-    border:1px solid var(--border‑color);
+    object-fit:cover;
+    border-radius:6px;
+}
+.avatar-placeholder {
+    width:64px;
+    height:64px;
+    border-radius:6px;
+    border:1px solid var(--border-color);
     display:flex;
-    align‑items:center;
-    justify‑content:center;
-    font‑size:12px;
-    text‑align:center;
-    color:var(--text‑secondary);
+    align-items:center;
+    justify-content:center;
+    font-size:12px;
+    text-align:center;
+    color:var(--text-secondary);
 }
-.bubble‑text {
-    flex‑grow:1;
+.bubble-text {
+    flex-grow:1;
 }
-.bubble‑text p {
-    margin‑bottom:8px;
-    line‑height:1.6;
+.bubble-text p {
+    margin-bottom:8px;
+    line-height:1.6;
 }
-.bubble‑text p:last‑child {
-    margin‑bottom:0;
+.bubble-text p:last-child {
+    margin-bottom:0;
 }
 </style>
 </head>
 <body>
-<div class="theme‑toggle‑wrap">
-    <button id="btn‑theme‑switch">切换深色模式</button>
+<div class="theme-toggle-wrap">
+    <button id="btn-theme-switch">切换深色模式</button>
 </div>
 
-<div class="quiz‑meta">
+<div class="quiz-meta">
     <h1>{{ quiz_meta.title | e }}</h1>
     {% if quiz_meta.subject %}
-    <div class="subject‑desc">{{ quiz_meta.subject | e }}</div>
+    <div class="subject-desc">{{ quiz_meta.subject | e }}</div>
     {% endif %}
 </div>
 
 {% for g in groups %}
-<div class="group‑block">
-    <div class="group‑title">{{ g.gt | e }}</div>
+<div class="group-block">
+    <div class="group-title">{{ g.gt | e }}</div>
     {% if g.group_audio_b64 %}
-    <div class="audio‑wrap">
-        <audio controls data‑group‑idx="{{ loop.index0 }}" src="{{ g.group_audio_b64 }}">
+    <div class="audio-wrap">
+        <audio controls data-group-idx="{{ loop.index0 }}" src="{{ g.group_audio_b64 }}">
     </div>
     {% endif %}
 
     {% for bubble in g.bubbles %}
-    <div class="bubble" style="background‑color: {{ bubble.bubble_bg }};">
-        <div class="avatar‑box">
+    <div class="bubble" style="background-color: {{ bubble.bubble_bg }};">
+        <div class="avatar-box">
         {% if bubble.avatar_b64 %}
-            <img class="avatar‑img" src="{{ bubble.avatar_b64 }}" alt="{{ bubble.sp | e }}">
+            <img class="avatar-img" src="{{ bubble.avatar_b64 }}" alt="{{ bubble.sp | e }}">
         {% else %}
-            <div class="avatar‑placeholder">{{ bubble.sp | e }}</div>
+            <div class="avatar-placeholder">{{ bubble.sp | e }}</div>
         {% endif %}
         </div>
-        <div class="bubble‑text">
+        <div class="bubble-text">
             {% for para in bubble.txt_list %}
                 <p>{{ para | e }}</p>
             {% endfor %}
@@ -164,16 +164,16 @@ audio {
 
 <script>
 // 主题切换逻辑
-const btnSwitch = document.getElementById("btn‑theme‑switch");
+const btnSwitch = document.getElementById("btn-theme-switch");
 const bodyEl = document.body;
 let isDark = false;
 btnSwitch.addEventListener("click", ()=>{
     isDark = !isDark;
     if(isDark){
-        bodyEl.classList.add("theme‑dark");
+        bodyEl.classList.add("theme-dark");
         btnSwitch.textContent = "切换浅色模式";
     }else{
-        bodyEl.classList.remove("theme‑dark");
+        bodyEl.classList.remove("theme-dark");
         btnSwitch.textContent = "切换深色模式";
     }
 });

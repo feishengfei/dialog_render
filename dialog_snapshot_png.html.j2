@@ -5,87 +5,87 @@
 <meta name="viewport" content="width=device‑width, initial‑scale=1.0">
 <style>
 * {
-    box-sizing: border‑box;
+    box-sizing: border-box;
     margin: 0;
     padding: 0;
 }
 body {
-    font‑family: "Noto Sans SC", system‑ui, sans‑serif;
-    font‑size: 16px;
-    line‑height: 1.65;
+    font-family: "Noto Sans SC", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
     background: #ffffff;
     color: #111111;
     padding: 20px 16px;
-    max‑width: 100%;
+    max-width: 100%;
 }
-.quiz‑meta {
-    text‑align: center;
-    margin‑bottom: 26px;
+.quiz-meta {
+    text-align: center;
+    margin-bottom: 26px;
 }
-.quiz‑meta h1 {
-    font‑size: 22px;
-    font‑weight: bold;
-    margin‑bottom: 8px;
+.quiz-meta h1 {
+    font-size: 22px;
+    font-weight: bold;
+    margin-bottom: 8px;
 }
-.quiz‑meta .subject‑desc {
-    font‑size: 15px;
+.quiz-meta .subject-desc {
+    font-size: 15px;
     color: #444444;
 }
-.group‑block {
-    margin‑bottom: 28px;
+.group-block {
+    margin-bottom: 28px;
 }
-.group‑title {
-    font‑size: 18px;
-    font‑weight: bold;
-    margin‑bottom: 12px;
-    padding‑bottom: 4px;
-    border‑bottom: 1px solid #aaaaaa;
+.group-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 12px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #aaaaaa;
 }
 /* 对话气泡，适配1080*1920截图视口 */
 .bubble {
     width: 100%;
-    border‑radius: 10px;
+    border-radius: 10px;
     padding: 14px;
-    margin‑bottom: 14px;
+    margin-bottom: 14px;
     display: flex;
     gap: 12px;
-    page‑break‑inside: avoid;
+    page-break-inside: avoid;
 }
-.avatar‑box {
-    flex‑shrink: 0;
+.avatar-box {
+    flex-shrink: 0;
     width: 60px;
 }
-.avatar‑img {
+.avatar-img {
     width: 60px;
     height: 60px;
-    object‑fit: cover;
-    border‑radius: 6px;
+    object-fit: cover;
+    border-radius: 6px;
 }
-.avatar‑placeholder {
+.avatar-placeholder {
     width: 60px;
     height: 60px;
     border: 1px solid #aaa;
-    border‑radius: 6px;
+    border-radius: 6px;
     display: flex;
-    align‑items: center;
-    justify‑content: center;
-    font‑size: 12px;
-    text‑align: center;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    text-align: center;
     color: #444;
 }
-.bubble‑text {
-    flex‑grow: 1;
+.bubble-text {
+    flex-grow: 1;
 }
-.bubble‑text p {
-    margin‑bottom: 8px;
+.bubble-text p {
+    margin-bottom: 8px;
 }
-.bubble‑text p:last‑child {
-    margin‑bottom: 0;
+.bubble-text p:last-child {
+    margin-bottom: 0;
 }
 </style>
 </head>
 <body>
-<div class="quiz‑meta">
+<div class="quiz-meta">
     <h1>{{ quiz_meta.title | e }}</h1>
     {% if quiz_meta.subject %}
     <div class="subject‑desc">{{ quiz_meta.subject | e }}</div>
@@ -93,18 +93,18 @@ body {
 </div>
 
 {% for g in groups %}
-<div class="group‑block">
-    <div class="group‑title">{{ g.gt | e }}</div>
+<div class="group-block">
+    <div class="group-title">{{ g.gt | e }}</div>
     {% for bubble in g.bubbles %}
-    <div class="bubble" style="background‑color: {{ bubble.bubble_bg }};">
-        <div class="avatar‑box">
+    <div class="bubble" style="background-color: {{ bubble.bubble_bg }};">
+        <div class="avatar-box">
         {% if bubble.avatar_b64 %}
-            <img class="avatar‑img" src="{{ bubble.avatar_b64 }}" alt="{{ bubble.sp | e }}">
+            <img class="avatar-img" src="{{ bubble.avatar_b64 }}" alt="{{ bubble.sp | e }}">
         {% else %}
-            <div class="avatar‑placeholder">{{ bubble.sp | e }}</div>
+            <div class="avatar-placeholder">{{ bubble.sp | e }}</div>
         {% endif %}
         </div>
-        <div class="bubble‑text">
+        <div class="bubble-text">
             {% for para in bubble.txt_list %}
                 <p>{{ para | e }}</p>
             {% endfor %}
