@@ -379,6 +379,65 @@ def html_to_paginated_png(html_content: str, out_prefix: str):
         browser.close()
     return out_files
 
+def render_dialogue(
+    yaml_path: Path,
+    cast_dir: Path,
+    audio_dir: Path,
+    template_dir: Path,
+    output_base_dir: Path,
+):
+    """
+    供ComfyUI节点调用的对外API
+    返回 (html_output_path: Path, pdf_output_path: Path)
+    """
+    # 内部复用原有业务逻辑，不要调用main()
+    yaml_abs = yaml_path.resolve()
+    cast_dir = cast_dir.resolve()
+    audio_dir = audio_dir.resolve()
+    output_base_dir = output_base_dir.resolve()
+
+    with open(yaml_abs, "r", encoding="utf-8") as f:
+        raw_data = yaml.safe_load(f)
+
+    quiz_meta = raw_data.get("quiz_meta", {})
+    groups_raw = raw_data.get("groups", [])
+
+    sp_fullname_map = load_cast_yaml(cast_dir)
+    all_sp_set = collect_all_speakers(groups_raw)
+    sp_asset_cache = preload_speaker_assets(cast_dir, all_sp_set, sp_fullname_map)
+
+    group_ctx_list = []
+    for g_idx, g_raw in enumerate(groups_raw):
+        g_ctx = build_group_context(g_raw, g_idx, sp_asset_cache, audio_dir)
+        if g_ctx is not None:
+            group_ctx_list.append(g_ctx)
+
+    jinja_env = Environment(loader=FileSystemLoader(template_dir), autoescape=True)
+    def json_filter(val):
+        return json.dumps(val, ensure_ascii=False)
+    jinja_env.filters["tojson"] = json_filter
+
+    render_ctx = {
+        "quiz_meta": quiz_meta,
+        "groups": group_ctx_list
+    }
+
+    basename_stem = yaml_abs.stem
+    html_interactive = render_html(jinja_env, "dialog_interactive.html.j2", render_ctx)
+    html_interactive_path = output_base_dir / f"{basename_stem}_interactive.html"
+    with open(html_interactive_path, "w", encoding="utf-8") as f:
+        f.write(html_interactive)
+
+    html_pdf_content = render_html(jinja_env, "dialog_print_pdf.html.j2", render_ctx)
+    pdf_out_path = output_base_dir / f"{basename_stem}.pdf"
+    html_to_pdf(html_pdf_content, str(pdf_out_path))
+
+    html_png_content = render_html(jinja_env, "dialog_snapshot_png.html.j2", render_ctx)
+    png_prefix = str(output_base_dir / f"{basename_stem}_snap")
+    html_to_paginated_png(html_png_content, png_prefix)
+
+    return html_interactive_path, pdf_out_path
+
 
 def main():
     parser = argparse.ArgumentParser(description="Dialog YAML render: interactive.html / output.pdf / 分页png")
